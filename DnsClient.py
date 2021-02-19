@@ -5,12 +5,14 @@ import random
 import codecs
 
 
+client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
 def str_to_hex(string):
     result = "".join([hex(ord(char))[2:] for char in string])
     return "0x" + result
 
 
-def create_query(timeout, request_type, server_name, host_name):
+def create_query(port, timeout, request_type, server_name, host_name):
     random.seed()
 
     '''
@@ -55,7 +57,7 @@ def create_query(timeout, request_type, server_name, host_name):
         DNS_QUERY["qname" + str(i)] = hex(len(label))
 
         i += 1
-        DNS_QUERY_FORMAT.appen("hex=" + "qname" + str(i))
+        DNS_QUERY_FORMAT.append("hex=" + "qname" + str(i))
         DNS_QUERY["qname" + str(i)] = str_to_hex(label)
 
         i += 1
@@ -64,11 +66,38 @@ def create_query(timeout, request_type, server_name, host_name):
     DNS_QUERY_FORMAT.append("hex=qname" + str(i))
     DNS_QUERY["qname" + str(i)] = hex(0)
 
+    # construct qtype for A, MX, NS
+    # return if not one of them
+    DNS_QUERY_FORMAT.apppend("uintbe:16=qtype") 
+    qtype = 0
+    if request_type == 'A':
+        qtype = 1
+    elif request_type == 'MX':
+        qtype = 15
+    elif request_type == 'NS':
+        qtype = 2
+    if qtype == 0:
+        return
+    DNS_QUERY["qtype"] = qtype
+
+    # qclass of 0x0001 for IN
+    DNS_QUERY_FORMAT.append("hex=qclass")
+    DNS_QUERY["qclass"] = "0x0001"
+
+    # convert data to bits
+    data = bitstring.pack(",".join(DNS_QUERY_FORMAT), **DNS_QUERY)
+
+    DNS_IP = server_name
+    DNS_PORT = port
+
+    address = (DNS_IP, DNS_PORT)
+
+    # send request
+    client_socket.sendto(data.tobytes(), address)
+
     read = 1024
 
-    client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-    data, address = client.recvfrom(read)
+    data, address = client_socket.recvfrom(read)
 
     data = bitstring.BitArray(bytes=data)
 
@@ -110,8 +139,6 @@ def create_query(timeout, request_type, server_name, host_name):
     elif r_code == "5":
         print("ERROR\tRefused: the name server refuses to perform the requested operation for policy reasons")
     return result
-
-
 
 if __name__ == "__main__":
     timeout = 5
