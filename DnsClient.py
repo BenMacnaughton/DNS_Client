@@ -12,7 +12,7 @@ def str_to_hex(string):
     return "0x" + result
 
 
-def create_query(port, timeout, request_type, server_name, host_name):
+def create_query(port, request_type, server_name, host_name):
     random.seed()
 
     '''
@@ -68,7 +68,7 @@ def create_query(port, timeout, request_type, server_name, host_name):
 
     # construct qtype for A, MX, NS
     # return if not one of them
-    DNS_QUERY_FORMAT.apppend("uintbe:16=qtype") 
+    DNS_QUERY_FORMAT.append("uintbe:16=qtype")
     qtype = 0
     if request_type == 'A':
         qtype = 1
@@ -107,6 +107,7 @@ def create_query(port, timeout, request_type, server_name, host_name):
     j = 104
 
     for label in host_name:
+        print("data = " + str(data))
         inc = (int(str(data[i:j].hex), 16) * 8)
         i = j
         j += inc
@@ -163,5 +164,20 @@ if __name__ == "__main__":
             request_type = "MX"
         elif "-ns" in sys.argv:
             request_type = "NS"
-    server_name = sys.argv[-2]
+    server_name = sys.argv[-2].strip('@')
     host_name = sys.argv[-1]
+
+    print("DnsClient Sending request for " + host_name)
+    print("Server: " + server_name)
+    print("Request type: " + request_type)
+
+    response = create_query(port_number, request_type, server_name, host_name)
+    i = 1
+    while response['host'] is None and i < max_retries:
+        response = create_query(port_number, request_type, server_name, host_name)
+        i += 1
+    if response['host']:
+        print("Response received after " + str(0) + " seconds (" + str(i-1) + " retries)")
+        print("Host name: " + response['host'])
+        print("Hosgt IP address: " + response['ip'])
+
