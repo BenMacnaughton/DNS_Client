@@ -2,12 +2,15 @@ import sys
 import socket
 import bitstring
 import random
+import codecs
+
 
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 def str_to_hex(string):
     result = "".join([hex(ord(char))[2:] for char in string])
     return "0x" + result
+
 
 def create_query(port, timeout, request_type, server_name, host_name):
     random.seed()
@@ -17,13 +20,13 @@ def create_query(port, timeout, request_type, server_name, host_name):
     Will append to list as we assemble query
     '''
     DNS_QUERY_FORMAT = [
-        "hex=id", 
-        "bin=flags", 
-        "uintbe:16=qdcount", 
-        "uintbe:16=ancount", 
-        "uintbe:16=nscount", 
+        "hex=id",
+        "bin=flags",
+        "uintbe:16=qdcount",
+        "uintbe:16=ancount",
+        "uintbe:16=nscount",
         "uintbe:16=arcount"
-        ]
+    ]
 
     '''
     Our query represented as a dictionary
@@ -36,7 +39,7 @@ def create_query(port, timeout, request_type, server_name, host_name):
         "ancount": 0,
         "nscount": 0,
         "arcount": 0
-        }
+    }
 
     host_name = host_name.split('.')
 
@@ -44,15 +47,15 @@ def create_query(port, timeout, request_type, server_name, host_name):
 
     '''
     Create all qname entries and corresponding formats
-    will parse host_name one label at a time and convert len/label 
+    will parse host_name one label at a time and convert len/label
     to hex
     '''
     for label in host_name:
-        
+
         label = label.strip()
         DNS_QUERY_FORMAT.append("hex=" + "qname" + str(i))
         DNS_QUERY["qname" + str(i)] = hex(len(label))
-        
+
         i += 1
         DNS_QUERY_FORMAT.append("hex=" + "qname" + str(i))
         DNS_QUERY["qname" + str(i)] = str_to_hex(label)
@@ -92,10 +95,50 @@ def create_query(port, timeout, request_type, server_name, host_name):
     # send request
     client_socket.sendto(data.tobytes(), address)
 
-    # return data and address to be used in recv
-    return (data, address)
+    read = 1024
 
-    
+    data, address = client_socket.recvfrom(read)
+
+    data = bitstring.BitArray(bytes=data)
+
+    host_name_received = []
+
+    i = 96
+    j = 104
+
+    for label in host_name:
+        inc = (int(str(data[i:j].hex), 16) * 8)
+        i = j
+        j += inc
+        host_name_received.append(codecs.decode(
+            data[i:j].hex, "hex_codec").decode())
+        i = j
+        j += 8
+
+    r_code = str(data[28:32].hex)
+
+    result = {'host': None, 'ip': None}
+
+    # Error check
+    if r_code == "0":
+        result['host'] = ".".join(host_name_received)
+        result['ip_address'] = ".".join([
+            str(data[-32:-24].uintbe)
+            ,str(data[-24:-16].uintbe)
+            ,str(data[-16:-8].uintbe)
+            ,str(data[-8:].uintbe)
+        ])
+    elif r_code == "1":
+        print("ERROR\tFormat error: the name server was unable to interpret the query")
+    elif r_code == "2":
+        print("ERROR\tServer failure: the name server was unable to process this query due to a problem with the name server")
+    elif r_code == "3":
+        print("ERROR\tName error: meaningful only for responses from an authoritative name server, this code signiﬁes that the domain name referenced in the query does not exist")
+    elif r_code == "4":
+        print("ERROR\tNot implemented: the name server does not support the requested kind of query")
+    elif r_code == "5":
+        print("ERROR\tRefused: the name server refuses to perform the requested operation for policy reasons")
+    return result
 
 if __name__ == "__main__":
     timeout = 5
