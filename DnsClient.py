@@ -8,7 +8,13 @@ import codecs
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 def str_to_hex(string):
-    result = "".join([hex(ord(char))[2:] for char in string])
+    result = "0"
+    if string.__class__.__name__ == "int" and string >= 0:
+        result = hex(string)
+        if string < 16:
+            result = "0" + result[2:]
+    elif string.__class__.__name__ == "str":
+        result = "".join([hex(ord(char))[2:] for char in string])
     return "0x" + result
 
 
@@ -33,7 +39,7 @@ def create_query(port, request_type, server_name, host_name):
     Will add on to dictionary as we assemble query
     '''
     DNS_QUERY = {
-        "id": hex(random.randint(0, 256)),
+        "id": "0x1a2b",
         "flags": "0b0000000100000000",
         "qdcount": 1,
         "ancount": 0,
@@ -50,21 +56,21 @@ def create_query(port, request_type, server_name, host_name):
     will parse host_name one label at a time and convert len/label
     to hex
     '''
-    for label in host_name:
+    for j, _ in enumerate(host_name):
 
-        label = label.strip()
+        host_name[j] = host_name[j].strip()
         DNS_QUERY_FORMAT.append("hex=" + "qname" + str(i))
-        DNS_QUERY["qname" + str(i)] = hex(len(label))
+        DNS_QUERY["qname" + str(i)] = str_to_hex(len(host_name[j]))
 
         i += 1
         DNS_QUERY_FORMAT.append("hex=" + "qname" + str(i))
-        DNS_QUERY["qname" + str(i)] = str_to_hex(label)
+        DNS_QUERY["qname" + str(i)] = str_to_hex(host_name[j])
 
         i += 1
 
     # Add a terminating byte.
     DNS_QUERY_FORMAT.append("hex=qname" + str(i))
-    DNS_QUERY["qname" + str(i)] = hex(0)
+    DNS_QUERY["qname" + str(i)] = str_to_hex(0)
 
     # construct qtype for A, MX, NS
     # return if not one of them
@@ -101,29 +107,13 @@ def create_query(port, request_type, server_name, host_name):
 
     data = bitstring.BitArray(bytes=data)
 
-    host_name_received = []
-
-    i = 96
-    j = 104
-
-    for label in host_name:
-        print("data = " + str(data))
-        inc = (int(str(data[i:j].hex), 16) * 8)
-        i = j
-        j += inc
-        host_name_received.append(codecs.decode(
-            data[i:j].hex, "hex_codec").decode())
-        i = j
-        j += 8
-
     r_code = str(data[28:32].hex)
 
-    result = {'host': None, 'ip': None}
+    result = {'ip': None}
 
     # Error check
     if r_code == "0":
-        result['host'] = ".".join(host_name_received)
-        result['ip_address'] = ".".join([
+        result['ip'] = ".".join([
             str(data[-32:-24].uintbe)
             ,str(data[-24:-16].uintbe)
             ,str(data[-16:-8].uintbe)
@@ -173,11 +163,10 @@ if __name__ == "__main__":
 
     response = create_query(port_number, request_type, server_name, host_name)
     i = 1
-    while response['host'] is None and i < max_retries:
+    while response['ip'] is None and i < max_retries:
         response = create_query(port_number, request_type, server_name, host_name)
         i += 1
-    if response['host']:
-        print("Response received after " + str(0) + " seconds (" + str(i-1) + " retries)")
-        print("Host name: " + response['host'])
-        print("Hosgt IP address: " + response['ip'])
+
+    print("Response received after " + str(0) + " seconds (" + str(i-1) + " retries)")
+    print("Host IP address: " + response['ip'])
 
