@@ -2,7 +2,8 @@ import sys
 import socket
 import bitstring
 import random
-import struct
+import re
+import time
 
 
 
@@ -20,7 +21,7 @@ def to_hex(string):
     return str(result)
 
 
-def create_query(port, request_type, server_name, host_name):
+def create_query(port, request_type, server_name, host_name, timeout):
     random.seed()
     ID = to_hex(random.randint(0, 65535))
     data = ""
@@ -58,6 +59,7 @@ def create_query(port, request_type, server_name, host_name):
 
     # send request
     data = bytes.fromhex(data)
+    client_socket.settimeout(timeout*1000)
     client_socket.sendto(data, address)
 
     read = 1024
@@ -67,7 +69,7 @@ def create_query(port, request_type, server_name, host_name):
 
     "Convert to bit array"
     data = bitstring.BitArray(bytes=data)
-    print(data)
+
     #Flags
     QR = data[16] == 1
     AA = data[21] == 1
@@ -138,8 +140,6 @@ def create_query(port, request_type, server_name, host_name):
     result['scc'] = int(str(data[i:i+32]), 0)
 
     i += 32
-    rdata_length = int(str(data[i:i+16]), 0)
-    print(rdata_length)
 
     i += 16
     if request_type_received == "0x0001": # A record
@@ -171,15 +171,15 @@ def create_query(port, request_type, server_name, host_name):
 
     # Error check
     if r_code == "0x1":
-        result['error'] = (result['error'] or '') + "ERROR\tFormat error: the name server was unable to interpret the query"
+        result['error'] = "ERROR\tFormat error: the name server was unable to interpret the query"
     elif r_code == "0x2":
-        result['error'] = (result['error'] or '') + "ERROR\tServer failure: the name server was unable to process this query due to a problem with the name server"
+        result['error'] = "ERROR\tServer failure: the name server was unable to process this query due to a problem with the name server"
     elif r_code == "0x3":
-        result['error'] = (result['error'] or '') + "ERROR\tName error: meaningful only for responses from an authoritative name server, this code signiﬁes that the domain name referenced in the query does not exist"
+        result['error'] = "ERROR\tName error: meaningful only for responses from an authoritative name server, this code signiﬁes that the domain name referenced in the query does not exist"
     elif r_code == "0x4":
-        result['error'] = (result['error'] or '') + "ERROR\tNot implemented: the name server does not support the requested kind of query"
+        result['error'] = "ERROR\tNot implemented: the name server does not support the requested kind of query"
     elif r_code == "0x5":
-        result['error'] = (result['error'] or '') + "ERROR\tRefused: the name server refuses to perform the requested operation for policy reasons"
+        result['error'] =  "ERROR\tRefused: the name server refuses to perform the requested operation for policy reasons"
 
 
     return result
@@ -210,17 +210,29 @@ if __name__ == "__main__":
     server_name = sys.argv[-2].strip('@')
     host_name = sys.argv[-1]
 
+    #Check for valid IP
+    val_address = re.search("^((25[0-5]|(2[0-4]|1[0-9]|[1-9]|)[0-9])(\\.(?!$)|$)){4}$", server_name)
+    if not val_address:
+        print("ERROR\tIncorrect input syntax: not an IP address")
+        exit(1)
+
     print("DnsClient Sending request for " + host_name)
     print("Server: " + server_name)
     print("Request type: " + request_type + "\n")
 
-    response = create_query(port_number, request_type, server_name, host_name)
+    #Start time
+    ti = time.time()
+
+    response = create_query(port_number, request_type, server_name, host_name, timeout)
     i = 0
-    while  response['error'] is not None and i < max_retries:
-        r = create_query(port_number, request_type, server_name, host_name)
+    while i < max_retries and response['error'] is not None:
+        r = create_query(port_number, request_type, server_name, host_name, timeout)
         i += 1
 
-    print("Response received after " + str(0) + " seconds (" + str(i) + " retries)\n")
+    #End time
+    tf = time.time()
+
+    print("Response received after " + str(tf-ti) + " seconds (" + str(i) + " retries)\n")
     print("***Answer Section (" + str(response['num_answers']) + " records)***\n")
     if response['type'] == "A": print("IP\t" + str(response['ip']) + "\t" + str(response['scc']) + '\t' + str(response['auth']) + "\n")
     elif response['type'] == "CNAME": print("CNAME\t" + str(response['alias']) + "\t" + "\t" + str(response['scc']) + '\t' + str(response['auth']) + "\n")
