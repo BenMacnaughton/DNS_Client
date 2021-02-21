@@ -64,7 +64,7 @@ def create_query(port, request_type, server_name, host_name):
     data, address = client_socket.recvfrom(read)
 
     data = bitstring.BitArray(bytes=data)
-
+    print(data)
     #Flags
     QR = data[16] == 1
     AA = data[21] == 1
@@ -83,32 +83,75 @@ def create_query(port, request_type, server_name, host_name):
         x += 8
         y += 8
         next_byte = data[x:y]
-    i = y + 1
+    i = y + 32 # skip qtype qclass
 
-    request_type_received = ""
 
-    result = None #Dict to return to main
-    if request_type_received == "A":
+
+
+    i += 16 # need to implement compression, placeholder shift
+
+
+
+
+
+    request_type_received = data[i:i+16]
+    i += 16
+
+    result = {'num_answers' : None, 'scc' : None, 'auth' : None, 'error' : None} #Dict to return to main
+
+    if request_type_received == "0x0001": # A record
         result = {'num_answers': None, 'ip': None, 'scc': None, 'auth': None, 'error': None}
-    elif request_type_received == "CNAME" or request_type_received == "NS":
+    elif request_type_received == "0x0005" or request_type_received == "0x0002": # CNAME or NS
         result = {'num_answers': None, 'alias': None, 'scc': None, 'auth': None, 'error': None}
-    elif request_type_received == "MX":
+    elif request_type_received == "0x000f": # MX
+        result = {'num_answers': None, 'alias': None, 'pref': None, 'scc': None, 'auth': None, 'error': None}
+
+    response_class = data[i:i+16]
+    if response_class != '0x0001':
+        result['error'] = "ERROR\tClass error, expected 0x0001 and received " + str(response_class) + "\n"
+
+
+    i += 16
+    result['scc'] = int(str(data[i:i+32]), 0)
+
+    i += 32
+    rdata_length = int(str(data[i:i+16]), 0)
+    print(rdata_length)
+
+    i += 16
+    if request_type_received == "0x0001": # A record
+        result['ip'] = str(int(str(data[i:i+8]), 0)) + '.' + \
+            str(int(str(data[i+8:i+16]), 0)) + '.' + \
+                str(int(str(data[i+16:i+24]), 0)) + '.' + \
+                    str(int(str(data[i+24:i+32]), 0))
+
+    elif request_type_received == "0x0002" or request_type_received == "0x0005": # CNAME or NS
+        while data[i:i+8] != '0x00':
+            j = i + 8
+            k = j + 8 * int(str(data[i:i+8]), 0)
+            chunk = [c for c in data[j:k].decode('hex')]
+            word = ' '.join(chunk)
+            result['alias'] = (result['alias'] or '') + word
+            i = k
+    # elif request_type_received == "0x0005":
+    #     result['alias'] = 
+    elif request_type_received == "0x000f": # MX
         result = {'num_answers': None, 'alias': None, 'pref': None, 'scc': None, 'auth': None, 'error': None}
 
     # Error check
     if r_code == "0x1":
-        result['error'] = "ERROR\tFormat error: the name server was unable to interpret the query"
+        result['error'] = (result['error'] or '') + "ERROR\tFormat error: the name server was unable to interpret the query"
     elif r_code == "0x2":
-        result['error'] = "ERROR\tServer failure: the name server was unable to process this query due to a problem with the name server"
+        result['error'] = (result['error'] or '') + "ERROR\tServer failure: the name server was unable to process this query due to a problem with the name server"
     elif r_code == "0x3":
-        result['error'] = "ERROR\tName error: meaningful only for responses from an authoritative name server, this code signiﬁes that the domain name referenced in the query does not exist"
+        result['error'] = (result['error'] or '') + "ERROR\tName error: meaningful only for responses from an authoritative name server, this code signiﬁes that the domain name referenced in the query does not exist"
     elif r_code == "0x4":
-        result['error'] = "ERROR\tNot implemented: the name server does not support the requested kind of query"
+        result['error'] = (result['error'] or '') + "ERROR\tNot implemented: the name server does not support the requested kind of query"
     elif r_code == "0x5":
-        result['error'] = "ERROR\tRefused: the name server refuses to perform the requested operation for policy reasons"
+        result['error'] = (result['error'] or '') + "ERROR\tRefused: the name server refuses to perform the requested operation for policy reasons"
 
 
-    return 0
+    return result
 
 if __name__ == "__main__":
     timeout = 5
@@ -147,3 +190,5 @@ if __name__ == "__main__":
         i += 1
 
     print("Response received after " + str(0) + " seconds (" + str(i-1) + " retries)")
+    print("IP Address: " + str(r['ip']))
+    print("Seconds can cache: " + str(r['scc']))
