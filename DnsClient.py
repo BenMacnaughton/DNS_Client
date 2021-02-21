@@ -2,6 +2,7 @@ import sys
 import socket
 import bitstring
 import random
+import struct
 
 
 
@@ -61,8 +62,10 @@ def create_query(port, request_type, server_name, host_name):
 
     read = 1024
 
+    #Receive response
     data, address = client_socket.recvfrom(read)
 
+    "Convert to bit array"
     data = bitstring.BitArray(bytes=data)
     print(data)
     #Flags
@@ -97,21 +100,41 @@ def create_query(port, request_type, server_name, host_name):
     request_type_received = data[i:i+16]
     i += 16
 
-    result = {'num_answers' : None, 'scc' : None, 'auth' : None, 'error' : None} #Dict to return to main
+    result = {} #Dict to return to main
 
     if request_type_received == "0x0001": # A record
-        result = {'num_answers': None, 'ip': None, 'scc': None, 'auth': None, 'error': None}
-    elif request_type_received == "0x0005" or request_type_received == "0x0002": # CNAME or NS
-        result = {'num_answers': None, 'alias': None, 'scc': None, 'auth': None, 'error': None}
+        result = {'type': "A", 'num_answers': None, 'num_additional': None, 'ip': None, 'scc': None, 'auth': None, 'error': None}
+    elif request_type_received == "0x0005": # CNAME
+        result = {'type': "CNAME", 'num_answers': None, 'num_additional': None, 'alias': None, 'scc': None, 'auth': None, 'error': None}
+    elif request_type_received == "0x0002": # NS
+        result = {'type': "NS", 'num_answers': None, 'num_additional': None, 'alias': None, 'scc': None, 'auth': None, 'error': None}
     elif request_type_received == "0x000f": # MX
-        result = {'num_answers': None, 'alias': None, 'pref': None, 'scc': None, 'auth': None, 'error': None}
+        result = {'type': "MX", 'num_answers': None, 'num_additional': None, 'alias': None, 'pref': None, 'scc': None, 'auth': None, 'error': None}
 
     response_class = data[i:i+16]
     if response_class != '0x0001':
         result['error'] = "ERROR\tClass error, expected 0x0001 and received " + str(response_class) + "\n"
+        return
 
+    #Set auth
+    if AA :result['auth'] = "auth"
+    else: result['auth'] = "nonauth"
 
-    i += 16
+    #Check if response
+    if not QR:
+        result['error'] = "ERROR\tExpected a response"
+        return result
+
+    #Check number of answers
+    result['num_answers'] = an_count.uintbe
+    if an_count == "0x0000":
+        result['error'] = "ERROR\tExpected at least one answer"
+        return result
+
+    #Set number of additional records
+    result['num_additional'] = ar_count.uintbe
+
+    i += 16 #Continue to seconds can cache
     result['scc'] = int(str(data[i:i+32]), 0)
 
     i += 32
@@ -133,10 +156,18 @@ def create_query(port, request_type, server_name, host_name):
             word = ' '.join(chunk)
             result['alias'] = (result['alias'] or '') + word
             i = k
-    # elif request_type_received == "0x0005":
-    #     result['alias'] = 
+
     elif request_type_received == "0x000f": # MX
-        result = {'num_answers': None, 'alias': None, 'pref': None, 'scc': None, 'auth': None, 'error': None}
+        pref = data[i:i+16]
+        result['pref'] = pref.uintbe
+        i += 16
+        while data[i:i+8] != '0x00':
+            j = i + 8
+            k = j + 8 * int(str(data[i:i+8]), 0)
+            chunk = [c for c in data[j:k].decode('hex')]
+            word = ' '.join(chunk)
+            result['alias'] = (result['alias'] or '') + word
+            i = k
 
     # Error check
     if r_code == "0x1":
@@ -161,7 +192,7 @@ if __name__ == "__main__":
     server_name = ""
     host_name = ""
     if len(sys.argv) < 2:
-        print("Error")
+        print("ERROR\tIncorrect usage")
     elif len(sys.argv) >= 2:
         if "-t" in sys.argv:
             i = sys.argv.index("-t")
@@ -181,14 +212,20 @@ if __name__ == "__main__":
 
     print("DnsClient Sending request for " + host_name)
     print("Server: " + server_name)
-    print("Request type: " + request_type)
+    print("Request type: " + request_type + "\n")
 
-    r = create_query(port_number, request_type, server_name, host_name)
-    i = 1
-    while  r != 0 and i < max_retries:
+    response = create_query(port_number, request_type, server_name, host_name)
+    i = 0
+    while  response['error'] is not None and i < max_retries:
         r = create_query(port_number, request_type, server_name, host_name)
         i += 1
 
-    print("Response received after " + str(0) + " seconds (" + str(i-1) + " retries)")
-    print("IP Address: " + str(r['ip']))
-    print("Seconds can cache: " + str(r['scc']))
+    print("Response received after " + str(0) + " seconds (" + str(i) + " retries)\n")
+    print("***Answer Section (" + str(response['num_answers']) + " records)***\n")
+    if response['type'] == "A": print("IP\t" + str(response['ip']) + "\t" + str(response['scc']) + '\t' + str(response['auth']) + "\n")
+    elif response['type'] == "CNAME": print("CNAME\t" + str(response['alias']) + "\t" + "\t" + str(response['scc']) + '\t' + str(response['auth']) + "\n")
+    elif response['type'] == "MX": print("MX\t" + str(response['alias']) + "\t" + str(response['pref']) + "\t" + str(response['scc']) + '\t' + str(response['auth']) + "\n")
+    elif response['type'] == "NS": print("NS\t" + str(response['alias']) + "\t" + "\t" + str(response['scc']) + '\t' + str(response['auth']) + "\n")
+    print("***Additional Section (" + str(response['num_additional']) + " records)***\n")
+    if response['num_additional'] == 0: print("NOTFOUND\n")
+    if response['error'] is not None: print(response['error'])
