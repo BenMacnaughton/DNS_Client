@@ -225,7 +225,7 @@ if __name__ == "__main__":
 
     response = create_query(port_number, request_type, server_name, host_name, timeout)
     i = 0
-    while i < max_retries and response['error'] is not None:
+    while i < max_retries and (response is None or response['error'] is not None):
         r = create_query(port_number, request_type, server_name, host_name, timeout)
         i += 1
 
@@ -233,6 +233,9 @@ if __name__ == "__main__":
     tf = time.time()
 
     print("Response received after " + str(tf-ti) + " seconds (" + str(i) + " retries)\n")
+    if response is None:
+        print("ERROR\tNo response was received")
+        exit(1)
     print("***Answer Section (" + str(response['num_answers']) + " records)***\n")
     if response['type'] == "A": print("IP\t" + str(response['ip']) + "\t" + str(response['scc']) + '\t' + str(response['auth']) + "\n")
     elif response['type'] == "CNAME": print("CNAME\t" + str(response['alias']) + "\t" + "\t" + str(response['scc']) + '\t' + str(response['auth']) + "\n")
