@@ -4,18 +4,19 @@ import bitstring
 import random
 import re
 import time
+import codecs
 
 
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-def skip_name(x, y, data):
+def skip_name(i, x, y, data):
     # Go through name
     next_byte = data[x:y]
     while next_byte != "0x00":
         x += 8
         y += 8
         next_byte = data[x:y]
-    i = y + 32  # skip qtype qclass
+    i += y + 32  # skip qtype qclass
 
     # look for name pointer
     while data[i:i+2] != "0b11" and data[i:i+8] != "0x00":
@@ -30,15 +31,16 @@ def skip_name(x, y, data):
         i += 8
     return i
 
+def skip_record(i, data, request_type_received):
+    i = skip_name(i,i,i+8,data)
+    i += 64
 
 def resolve_record(i, data, result, request_type_received):
 
     i += 16  # Continue to seconds can cache
     result['scc'] = int(str(data[i:i+32]), 0)
 
-    i += 32
-
-    i += 16
+    i += 48
     if request_type_received == "0x0001":  # A record
         result['ip'] = str(int(str(data[i:i+8]), 0)) + '.' + \
             str(int(str(data[i+8:i+16]), 0)) + '.' + \
@@ -46,25 +48,45 @@ def resolve_record(i, data, result, request_type_received):
             str(int(str(data[i+24:i+32]), 0))
 
     elif request_type_received == "0x0002" or request_type_received == "0x0005":  # CNAME or NS
-        while data[i:i+8] != '0x00':
-            j = i + 8
-            k = j + 8 * int(str(data[i:i+8]), 0)
-            chunk = [c for c in data[j:k].decode('hex')]
-            word = ' '.join(chunk)
-            result['alias'] = (result['alias'] or '') + word
-            i = k
+        k = i
+        string = []
+        while data[k:k+8] != '0x00':
+            if data[k:k+2] == "0b11":
+                i = k + 16
+                ptr = data[k+2:k+16]
+                k = int(str(ptr), 0) * 8
+            j = k + 8
+            increment = (int(str(data[k:j].hex), 16) * 8)
+            k = j
+            j += increment
+            string.append(codecs.decode(data[k:j].hex, "hex_codec").decode())
+            print(string)
+            k = j
+            j += 8
+        result['alias'] = ".".join(string)
+        if k > i: i = k
 
     elif request_type_received == "0x000f":  # MX
         pref = data[i:i+16]
         result['pref'] = pref.uintbe
         i += 16
-        while data[i:i+8] != '0x00':
-            j = i + 8
-            k = j + 8 * int(str(data[i:i+8]), 0)
-            chunk = [c for c in data[j:k].decode('hex')]
-            word = ' '.join(chunk)
-            result['alias'] = (result['alias'] or '') + word
-            i = k
+        k = i
+        string = []
+        while data[k:k+8] != '0x00':
+            if data[k:k+2] == "0b11":
+                i = k + 16
+                ptr = data[k+2:k+16]
+                k = int(str(ptr), 0) * 8
+            j = k + 8
+            increment = (int(str(data[k:j].hex), 16) * 8)
+            k = j
+            j += increment
+            string.append(codecs.decode(data[k:j].hex, "hex_codec").decode())
+            print(string)
+            k = j
+            j += 8
+        result['alias'] = ".".join(string)
+        if k > i: i = k
     return i, result
 
 
@@ -149,12 +171,12 @@ def create_query(port, request_type, server_name, host_name):
     ar_count = data[80:96]
 
     #Skip name
-    i = skip_name(96, 104, data)
+    i = skip_name(0, 96, 104, data)
 
     #Get the request type
     i, request_type_received = get_type(i, data)
 
-    result = None  # Dict to return to main
+    result = {'answers': [], 'additionals':[]}  # Dict to return to main
 
     if request_type_received == "0x0001":  # A record
         result = {
@@ -201,6 +223,9 @@ def create_query(port, request_type, server_name, host_name):
             'error': None,
             'additional': []
         }
+    else:
+        print("ERROR\tUnexpected type: " + str(request_type_received))
+        exit(1)
 
     response_class = data[i:i+16]
     if response_class != '0x0001':
@@ -290,8 +315,7 @@ if __name__ == "__main__":
     # Set timeout
     client_socket.settimeout(int(timeout))
     while True:
-        response = create_query(
-            port_number, request_type, server_name, host_name)
+        response = create_query(port_number, request_type, server_name, host_name)
         i += 1
         if response:
             break
