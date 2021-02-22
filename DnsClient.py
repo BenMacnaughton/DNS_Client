@@ -21,9 +21,9 @@ def to_hex(string):
     return str(result)
 
 
-def create_query(port, request_type, server_name, host_name, timeout):
+def create_query(port, request_type, server_name, host_name):
     random.seed()
-    ID = to_hex(random.randint(0, 65535))
+    ID = to_hex(random.randint(0, 255)) + to_hex(random.randint(0, 255))
     data = ""
     data += ID #Add randomized ID
     data += "0100" #Flags
@@ -59,13 +59,16 @@ def create_query(port, request_type, server_name, host_name, timeout):
 
     # send request
     data = bytes.fromhex(data)
-    client_socket.settimeout(timeout*1000)
     client_socket.sendto(data, address)
 
     read = 1024
 
     #Receive response
-    data, address = client_socket.recvfrom(read)
+    try:
+        data, address = client_socket.recvfrom(read)
+    except socket.timeout:
+            print("ERROR\tTimeout reached")
+            return
 
     "Convert to bit array"
     data = bitstring.BitArray(bytes=data)
@@ -223,11 +226,16 @@ if __name__ == "__main__":
     #Start time
     ti = time.time()
 
-    response = create_query(port_number, request_type, server_name, host_name, timeout)
-    i = 0
-    while i < max_retries and (response is None or response['error'] is not None):
-        r = create_query(port_number, request_type, server_name, host_name, timeout)
+    i = -1
+    #Set timeout
+    client_socket.settimeout(int(timeout))
+    while True:
+        response = create_query(port_number, request_type, server_name, host_name)
         i += 1
+        if response: break
+        if i == max_retries:
+            print("ERROR\tMaximum retries reached")
+            exit(1)
 
     #End time
     tf = time.time()
