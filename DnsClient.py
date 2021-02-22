@@ -63,14 +63,14 @@ def create_query(port, request_type, server_name, host_name):
 
     read = 1024
 
-    #Receive response
+    # Receive response
     try:
         data, address = client_socket.recvfrom(read)
     except socket.timeout:
             print("ERROR\tTimeout reached")
             return
 
-    "Convert to bit array"
+    # Convert to bit array
     data = bitstring.BitArray(bytes=data)
 
     #Flags
@@ -94,27 +94,64 @@ def create_query(port, request_type, server_name, host_name):
     i = y + 32 # skip qtype qclass
 
 
-
-
-    i += 16 # need to implement compression, placeholder shift
-
-
-
-
+    # look for name pointer
+    while data[i:i+2] != "0b11" and data[i:i+8] != "0x00":
+        i += 8
+    
+    # if name pointer found, skip over offest
+    if data[i:i+2] == "0b11":
+        i += 16
+    
+    # skip over 0x00 if not offset
+    else:
+        i += 8
 
     request_type_received = data[i:i+16]
     i += 16
 
-    result = {} #Dict to return to main
+    result = None #Dict to return to main
 
     if request_type_received == "0x0001": # A record
-        result = {'type': "A", 'num_answers': None, 'num_additional': None, 'ip': None, 'scc': None, 'auth': None, 'error': None}
+        result = {
+            'type': "A", 
+            'num_answers': None, 
+            'num_additional': None, 
+            'ip': None, 
+            'scc': None, 
+            'auth': None, 
+            'error': None
+            }
     elif request_type_received == "0x0005": # CNAME
-        result = {'type': "CNAME", 'num_answers': None, 'num_additional': None, 'alias': None, 'scc': None, 'auth': None, 'error': None}
+        result = {
+            'type': "CNAME", 
+            'num_answers': None, 
+            'num_additional': None, 
+            'alias': None, 
+            'scc': None, 
+            'auth': None, 
+            'error': None
+            }
     elif request_type_received == "0x0002": # NS
-        result = {'type': "NS", 'num_answers': None, 'num_additional': None, 'alias': None, 'scc': None, 'auth': None, 'error': None}
+        result = {
+            'type': "NS", 
+            'num_answers': None, 
+            'num_additional': None, 
+            'alias': None, 
+            'scc': None, 
+            'auth': None, 
+            'error': None
+            }
     elif request_type_received == "0x000f": # MX
-        result = {'type': "MX", 'num_answers': None, 'num_additional': None, 'alias': None, 'pref': None, 'scc': None, 'auth': None, 'error': None}
+        result = {
+            'type': "MX", 
+            'num_answers': None, 
+            'num_additional': None, 
+            'alias': None, 
+            'pref': None, 
+            'scc': None, 
+            'auth': None, 
+            'error': None
+            }
 
     response_class = data[i:i+16]
     if response_class != '0x0001':
@@ -122,8 +159,10 @@ def create_query(port, request_type, server_name, host_name):
         return
 
     #Set auth
-    if AA :result['auth'] = "auth"
-    else: result['auth'] = "nonauth"
+    if AA: 
+        result['auth'] = "auth"
+    else: 
+        result['auth'] = "nonauth"
 
     #Check if response
     if not QR:
