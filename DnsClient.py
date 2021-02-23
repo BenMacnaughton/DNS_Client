@@ -187,6 +187,7 @@ def create_query(port, request_type, server_name, host_name):
     # Receive response
     try:
         data, address = client_socket.recvfrom(read)
+        print("hello")
     except socket.timeout:
         print("ERROR\tTimeout reached")
         return
@@ -215,7 +216,7 @@ if __name__ == "__main__":
             max_retries = sys.argv[i+1]
         if "-p" in sys.argv:
             i = sys.argv.index("-p")
-            port_number = sys.argv[i+1]
+            port_number = int(sys.argv[i+1])
         if "-mx" in sys.argv:
             request_type = "MX"
         elif "-ns" in sys.argv:
