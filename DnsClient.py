@@ -9,33 +9,75 @@ import codecs
 
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-def skip_name(i, x, y, data):
-    # Go through name
-    next_byte = data[x:y]
-    while next_byte != "0x00":
-        x += 8
-        y += 8
-        next_byte = data[x:y]
-    i += y + 32  # skip qtype qclass
-
+def skip_name(i, data):
     # look for name pointer
     while data[i:i+2] != "0b11" and data[i:i+8] != "0x00":
         i += 8
-
     # if name pointer found, skip over offest
     if data[i:i+2] == "0b11":
         i += 16
-
     # skip over 0x00 if not offset
     else:
         i += 8
     return i
 
-def skip_record(i, data, request_type_received):
-    i = skip_name(i,i,i+8,data)
-    i += 64
 
-def resolve_record(i, data, result, request_type_received):
+def print_record(response, auth):
+    if response['type'] == "A":
+        print("IP\t" + str(response['ip']) + "\t" +
+            str(response['scc']) + '\t' + auth + "\n")
+    elif response['type'] == "CNAME":
+        print("CNAME\t" + str(response['alias']) + "\t" + "\t" +
+              str(response['scc']) + '\t' + auth + "\n")
+    elif response['type'] == "MX":
+        print("MX\t" + str(response['alias']) + "\t" + str(response['pref']) +
+              "\t" + str(response['scc']) + '\t' + auth + "\n")
+    elif response['type'] == "NS":
+        print("NS\t" + str(response['alias']) + "\t" + "\t" +
+              str(response['scc']) + '\t' + auth + "\n")
+
+def resolve_record(i, data):
+    #Skip name
+    i = skip_name(i, data)
+    #Get the request type
+    request_type_received = data[i:i+16]
+    #Continue to Class
+    i += 16
+    #Check response class
+    response_class = data[i:i+16]
+    if response_class != '0x0001':
+        print("ERROR\tClass error, expected 0x0001 and received " + str(response_class))
+        exit(1)
+
+    result = None
+    if request_type_received == "0x0001":  # A record
+        result = {
+            'type': "A",
+            'ip': None,
+            'scc': None
+        }
+    elif request_type_received == "0x0005":  # CNAME
+        result = {
+            'type': "CNAME",
+            'alias': None,
+            'scc': None
+        }
+    elif request_type_received == "0x0002":  # NS
+        result = {
+            'type': "NS",
+            'alias': None,
+            'scc': None
+        }
+    elif request_type_received == "0x000f":  # MX
+        result = {
+            'type': "MX",
+            'alias': None,
+            'pref': None,
+            'scc': None
+        }
+    else:
+        print("ERROR\tUnexpected type: " + str(request_type_received))
+        exit(1)
 
     i += 16  # Continue to seconds can cache
     result['scc'] = int(str(data[i:i+32]), 0)
@@ -60,7 +102,6 @@ def resolve_record(i, data, result, request_type_received):
             k = j
             j += increment
             string.append(codecs.decode(data[k:j].hex, "hex_codec").decode())
-            print(string)
             k = j
             j += 8
         result['alias'] = ".".join(string)
@@ -82,7 +123,6 @@ def resolve_record(i, data, result, request_type_received):
             k = j
             j += increment
             string.append(codecs.decode(data[k:j].hex, "hex_codec").decode())
-            print(string)
             k = j
             j += 8
         result['alias'] = ".".join(string)
@@ -100,12 +140,6 @@ def to_hex(string):
     elif string.__class__.__name__ == "str":
         result = "".join([hex(ord(char))[2:] for char in string])
     return str(result)
-
-
-def get_type(i, data):
-    request_type_received = data[i:i+16]
-    i += 16
-    return i, request_type_received
 
 
 def create_query(port, request_type, server_name, host_name):
@@ -159,116 +193,8 @@ def create_query(port, request_type, server_name, host_name):
 
     # Convert to bit array
     data = bitstring.BitArray(bytes=data)
+    return data
 
-    # Flags
-    QR = data[16] == 1
-    AA = data[21] == 1
-    # Response Code
-    r_code = data[28:32]
-    # Answer count
-    an_count = data[48:64]
-    # Additional records count
-    ar_count = data[80:96]
-
-    #Skip name
-    i = skip_name(0, 96, 104, data)
-
-    #Get the request type
-    i, request_type_received = get_type(i, data)
-
-    result = {'answers': [], 'additionals':[]}  # Dict to return to main
-
-    if request_type_received == "0x0001":  # A record
-        result = {
-            'type': "A",
-            'num_answers': None,
-            'num_additional': None,
-            'ip': None,
-            'scc': None,
-            'auth': None,
-            'error': None,
-            'additional': []
-        }
-    elif request_type_received == "0x0005":  # CNAME
-        result = {
-            'type': "CNAME",
-            'num_answers': None,
-            'num_additional': None,
-            'alias': None,
-            'scc': None,
-            'auth': None,
-            'error': None,
-            'additional': []
-        }
-    elif request_type_received == "0x0002":  # NS
-        result = {
-            'type': "NS",
-            'num_answers': None,
-            'num_additional': None,
-            'alias': None,
-            'scc': None,
-            'auth': None,
-            'error': None,
-            'additional': []
-        }
-    elif request_type_received == "0x000f":  # MX
-        result = {
-            'type': "MX",
-            'num_answers': None,
-            'num_additional': None,
-            'alias': None,
-            'pref': None,
-            'scc': None,
-            'auth': None,
-            'error': None,
-            'additional': []
-        }
-    else:
-        print("ERROR\tUnexpected type: " + str(request_type_received))
-        exit(1)
-
-    response_class = data[i:i+16]
-    if response_class != '0x0001':
-        result['error'] = "ERROR\tClass error, expected 0x0001 and received " + \
-            str(response_class) + "\n"
-        return
-
-    # Set auth
-    if AA:
-        result['auth'] = "auth"
-    else:
-        result['auth'] = "nonauth"
-
-    # Check if response
-    if not QR:
-        result['error'] = "ERROR\tExpected a response"
-        return result
-
-    # Check number of answers
-    result['num_answers'] = an_count.uintbe
-    if an_count == "0x0000":
-        result['error'] = "ERROR\tExpected at least one answer"
-        return result
-
-    # Set number of additional records
-    result['num_additional'] = ar_count.uintbe
-
-    #Call resolve record on original answer
-    i, result = resolve_record(i, data, result, request_type_received)
-
-    # Error check
-    if r_code == "0x1":
-        result['error'] = "ERROR\tFormat error: the name server was unable to interpret the query"
-    elif r_code == "0x2":
-        result['error'] = "ERROR\tServer failure: the name server was unable to process this query due to a problem with the name server"
-    elif r_code == "0x3":
-        result['error'] = "ERROR\tName error: meaningful only for responses from an authoritative name server, this code signiﬁes that the domain name referenced in the query does not exist"
-    elif r_code == "0x4":
-        result['error'] = "ERROR\tNot implemented: the name server does not support the requested kind of query"
-    elif r_code == "0x5":
-        result['error'] = "ERROR\tRefused: the name server refuses to perform the requested operation for policy reasons"
-
-    return result
 
 
 if __name__ == "__main__":
@@ -298,8 +224,7 @@ if __name__ == "__main__":
     host_name = sys.argv[-1]
 
     # Check for valid IP
-    val_address = re.search(
-        "^((25[0-5]|(2[0-4]|1[0-9]|[1-9]|)[0-9])(\\.(?!$)|$)){4}$", server_name)
+    val_address = re.search("^((25[0-5]|(2[0-4]|1[0-9]|[1-9]|)[0-9])(\\.(?!$)|$)){4}$", server_name)
     if not val_address:
         print("ERROR\tIncorrect input syntax: not an IP address")
         exit(1)
@@ -310,44 +235,70 @@ if __name__ == "__main__":
 
     # Start time
     ti = time.time()
+    tf = None
+    #Error variable
+    error = None
 
-    i = -1
+    ret = 0
     # Set timeout
     client_socket.settimeout(int(timeout))
     while True:
-        response = create_query(port_number, request_type, server_name, host_name)
-        i += 1
-        if response:
+        data = create_query(port_number, request_type, server_name, host_name)
+        if data:
+            # End time
+            tf = time.time()
+            print("Response received after " + str(tf-ti) + " seconds (" + str(ret) + " retries)\n")
+            # Flags
+            QR = data[16] == 1
+            AA = data[21] == 1
+            auth = None
+            if AA: auth = "auth"
+            else: auth = "nonauth"
+            # Response Code
+            r_code = data[28:32]
+            # Answer count
+            an_count = data[48:64]
+            an_count = an_count.uintbe
+            #Auth records count
+            ns_count = data[64:80]
+            ns_count = ns_count.uintbe
+            # Additional records count
+            ar_count = data[80:96]
+            ar_count = ar_count.uintbe
+
+            i = 96
+            #Skip question
+            i = skip_name(i, data)
+            i += 32
+
+            # Check if response
+            if not QR:
+                error = "ERROR\tExpected a response"
+            # Error check
+            if r_code == "0x1":
+                error = "ERROR\tFormat error: the name server was unable to interpret the query"
+            elif r_code == "0x2":
+                error = "ERROR\tServer failure: the name server was unable to process this query due to a problem with the name server"
+            elif r_code == "0x3":
+                error = "ERROR\tName error: meaningful only for responses from an authoritative name server, this code signiﬁes that the domain name referenced in the query does not exist"
+            elif r_code == "0x4":
+                error = "ERROR\tNot implemented: the name server does not support the requested kind of query"
+            elif r_code == "0x5":
+                error = "ERROR\tRefused: the name server refuses to perform the requested operation for policy reasons"
+            print("***Answer Section (" + str(an_count) + " records)***\n")
+            for an in range(an_count):
+                i, response = resolve_record(i, data)
+                if response is not None: print_record(response, auth)
+            for ns in range(ns_count):
+                i, response = resolve_record(i, data)
+            print("***Additional Section (" + str(ar_count) + " records)***\n")
+            for ns in range(ns_count):
+                i, response = resolve_record(i, data)
+                if response is not None: print_record(response, auth)
+            if ns_count == 0: print("NOTFOUND\n")
+            if error is not None: print(error)
             break
-        if i == max_retries:
+        ret += 1
+        if ret == max_retries + 1:
             print("ERROR\tMaximum retries reached")
             exit(1)
-
-    # End time
-    tf = time.time()
-
-    print("Response received after " + str(tf-ti) +
-          " seconds (" + str(i) + " retries)\n")
-    if response is None:
-        print("ERROR\tNo response was received")
-        exit(1)
-    print("***Answer Section (" +
-          str(response['num_answers']) + " records)***\n")
-    if response['type'] == "A":
-        print("IP\t" + str(response['ip']) + "\t" +
-              str(response['scc']) + '\t' + str(response['auth']) + "\n")
-    elif response['type'] == "CNAME":
-        print("CNAME\t" + str(response['alias']) + "\t" + "\t" +
-              str(response['scc']) + '\t' + str(response['auth']) + "\n")
-    elif response['type'] == "MX":
-        print("MX\t" + str(response['alias']) + "\t" + str(response['pref']) +
-              "\t" + str(response['scc']) + '\t' + str(response['auth']) + "\n")
-    elif response['type'] == "NS":
-        print("NS\t" + str(response['alias']) + "\t" + "\t" +
-              str(response['scc']) + '\t' + str(response['auth']) + "\n")
-    print("***Additional Section (" +
-          str(response['num_additional']) + " records)***\n")
-    if response['num_additional'] == 0:
-        print("NOTFOUND\n")
-    if response['error'] is not None:
-        print(response['error'])
