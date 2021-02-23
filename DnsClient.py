@@ -286,18 +286,24 @@ if __name__ == "__main__":
             elif r_code == "0x5":
                 error = "ERROR\tRefused: the name server refuses to perform the requested operation for policy reasons"
             print("***Answer Section (" + str(an_count) + " records)***\n")
+
             for an in range(an_count):
                 i, response = resolve_record(i, data)
                 if response is not None: print_record(response, auth)
+
             for ns in range(ns_count):
                 i, response = resolve_record(i, data)
+
             print("***Additional Section (" + str(ar_count) + " records)***\n")
+
             for ns in range(ns_count):
                 i, response = resolve_record(i, data)
                 if response is not None: print_record(response, auth)
+
             if ns_count == 0: print("NOTFOUND\n")
             if error is not None: print(error)
             break
+        
         ret += 1
         if ret == max_retries + 1:
             print("ERROR\tMaximum retries reached")
