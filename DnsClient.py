@@ -187,7 +187,6 @@ def create_query(port, request_type, server_name, host_name):
     # Receive response
     try:
         data, address = client_socket.recvfrom(read)
-        print("hello")
     except socket.timeout:
         print("ERROR\tTimeout reached")
         return
